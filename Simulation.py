@@ -9,6 +9,7 @@ import argparse
 from sklearn.decomposition import TruncatedSVD
 from sklearn import cluster
 from sklearn.decomposition import PCA
+import random
 # local address to save simulated users, simulated articles, and results
 from conf import sim_files_folder, save_address
 from util_functions import featureUniform, gaussianFeature
@@ -22,6 +23,7 @@ from lib.CoLin import AsyCoLinUCBAlgorithm
 from lib.CLUB import *
 from lib.PTS import PTSAlgorithm
 from lib.UCBPMF import UCBPMFAlgorithm
+from lib.CascadeUCB import CascadeUCBAlgorithm
 
 
 
@@ -35,7 +37,7 @@ class simulateOnlineData(object):
 					poolArticleSize = 10, 
 					NoiseScale = 0,
 					sparseLevel = 0,  
-					epsilon = 1, Gepsilon = 1):
+					epsilon = 1, Gepsilon = 1, transitionProbabilities=None):
 
 		self.simulation_signature = signature
 		self.type = type_
@@ -57,6 +59,8 @@ class simulateOnlineData(object):
 
 		self.poolArticleSize = poolArticleSize
 		self.batchSize = batchSize
+
+		self.transitionProbabilities = transitionProbabilities
 		
 		#self.W = self.initializeW(epsilon)
 		#self.GW = self.initializeGW(Gepsilon)
@@ -152,8 +156,40 @@ class simulateOnlineData(object):
 		# Randomly generate articles
 		self.articlePool = sample(self.articles, self.poolArticleSize)   
 
+	def simulateClicks(self, user, noise):
+		clicks = {}
+		for article in self.articlePool:
+			clicks[article.id] = self.getClick(user, article, noise)
+		return clicks
+
+	def getClick(self, user, Article, noise):
+		reward = np.dot(user.theta, Article.featureVector) + noise
+		relevance = 1/(1+math.exp(-1.0*reward))
+		randomNum = random.uniform(0,1)
+		clickProb = 0
+		if relevance <= 0.5:
+			clickProb = user.profile[0]
+		else:
+			clickProb = user.profile[1]
+		if randomNum <= clickProb:
+			return True
+		else:
+			return False
+
 	def getReward(self, user, pickedArticle):
 		return np.dot(user.CoTheta, pickedArticle.featureVector)
+
+	def getReward2(self, pickedArticles, clicks):
+		if random.random() <= self.transitionProbabilities[0]:
+			i = 0
+			for article in pickedArticles:
+				if clicks[article.id]:
+					return 1, i
+				else:
+					if random.random() > self.transitionProbabilities[i+1]:
+						break
+				i += 1
+		return 0,-1
 
 	def GetOptimalReward(self, user, articlePool):		
 		maxReward = float('-inf')
@@ -164,11 +200,224 @@ class simulateOnlineData(object):
 				maxReward = reward
 				maxx = x
 		return maxReward, x
+
+	def GetOptimalReward2(self, clicks):
+		for article in self.articlePool:
+			if clicks[article.id]:
+				return 1, article
+		return 0,None
 	
 	def getL2Diff(self, x, y):
 		return np.linalg.norm(x-y) # L2 norm
 
 	def runAlgorithms(self, algorithms):
+			self.startTime = datetime.datetime.now()
+			timeRun = self.startTime.strftime('_%m_%d_%H_%M') 
+			filenameWriteRegret = os.path.join(save_address, 'AccRegret' + timeRun + '.csv')
+			filenameWritePara = os.path.join(save_address, 'ParameterEstimation' + timeRun + '.csv')
+
+			# compute co-theta for every user
+			self.CoTheta()
+
+			tim_ = []
+			BatchCumlateRegret = {}
+			AlgRegret = {}
+			ThetaDiffList = {}
+			CoThetaDiffList = {}
+			WDiffList = {}
+			VDiffList = {}
+			CoThetaVDiffList = {}
+			RDiffList ={}
+			RVDiffList = {}
+
+			ThetaDiff = {}
+			CoThetaDiff = {}
+			WDiff = {}
+			VDiff = {}
+			CoThetaVDiff = {}
+			RDiff ={}
+			RVDiff = {}
+
+			Var = {}
+			
+			# Initialization
+			userSize = len(self.users)
+			for alg_name, alg in algorithms.items():
+				AlgRegret[alg_name] = []
+				BatchCumlateRegret[alg_name] = []
+				if alg.CanEstimateUserPreference:
+					ThetaDiffList[alg_name] = []
+				if alg.CanEstimateCoUserPreference:
+					CoThetaDiffList[alg_name] = []
+				if alg.CanEstimateW:
+					WDiffList[alg_name] = []
+				if alg.CanEstimateV:
+					VDiffList[alg_name] = []
+					CoThetaVDiffList[alg_name] = []
+					RVDiffList[alg_name] = []
+					RDiffList[alg_name] = []
+				Var[alg_name] = []
+
+			
+			with open(filenameWriteRegret, 'w') as f:
+				f.write('Time(Iteration)')
+				f.write(',' + ','.join( [str(alg_name) for alg_name in algorithms.iterkeys()]))
+				f.write('\n')
+			
+			with open(filenameWritePara, 'w') as f:
+				f.write('Time(Iteration)')
+				f.write(',' + ','.join([str(alg_name)+'CoTheta' for alg_name in CoThetaDiffList.iterkeys()]))
+				f.write(','+ ','.join([str(alg_name)+'Theta' for alg_name in ThetaDiffList.iterkeys()]))
+				f.write(','+ ','.join([str(alg_name)+'W' for alg_name in WDiffList.iterkeys()]))
+				f.write(','+ ','.join([str(alg_name)+'V' for alg_name in VDiffList.iterkeys()]))
+				f.write(',' + ','.join([str(alg_name)+'CoThetaV' for alg_name in CoThetaVDiffList.iterkeys()]))
+				f.write(','+ ','.join([str(alg_name)+'R' for alg_name in RDiffList.iterkeys()]))
+				f.write(','+ ','.join([str(alg_name)+'RV' for alg_name in RVDiffList.iterkeys()]))
+				f.write('\n')
+			
+			
+
+			# Training
+			shuffle(self.articles)
+			for iter_ in range(self.training_iterations):
+				article = self.articles[iter_]										
+				for u in self.users:
+					noise = self.noise()	
+					reward = self.getReward(u, article)
+					reward += noise										
+					for alg_name, alg in algorithms.items():
+						alg.updateParameters(article, reward, u.id)	
+
+				if 'syncCoLinUCB' in algorithms:
+					algorithms['syncCoLinUCB'].LateUpdate()	
+
+			#Testing
+			for iter_ in range(self.testing_iterations):
+				# prepare to record theta estimation error
+				for alg_name, alg in algorithms.items():
+					if alg.CanEstimateUserPreference:
+						ThetaDiff[alg_name] = 0
+					if alg.CanEstimateCoUserPreference:
+						CoThetaDiff[alg_name] = 0
+					if alg.CanEstimateW:
+						WDiff[alg_name] = 0
+					if alg.CanEstimateV:
+						VDiff[alg_name]	= 0	
+						CoThetaVDiff[alg_name] = 0	
+						RVDiff[alg_name]	= 0	
+					RDiff[alg_name]	= 0	
+					
+				for u in self.users:
+
+					self.regulateArticlePool() # select random articles
+
+					noise = self.noise()
+					#get optimal reward for user x at time t
+					OptimalReward, OptimalArticle = self.GetOptimalReward(u, self.articlePool) 
+					OptimalReward += noise
+								
+					for alg_name, alg in algorithms.items():
+						pickedArticle = alg.decide(self.articlePool, u.id)
+						reward = self.getReward(u, pickedArticle) + noise
+						if (self.testing_method=="online"): # for batch test, do not update while testing
+							alg.updateParameters(pickedArticle, reward, u.id)
+							if alg_name =='CLUB':
+								n_components= alg.updateGraphClusters(u.id,'False')
+
+						regret = OptimalReward - reward	
+						AlgRegret[alg_name].append(regret)
+
+						if u.id == 0:
+							if alg_name in ['LBFGS_random','LBFGS_random_around','LinUCB', 'LBFGS_gradient_inc']:
+								means, vars = alg.getProb(self.articlePool, u.id)
+								Var[alg_name].append(vars[0])
+
+						#update parameter estimation record
+						if alg.CanEstimateUserPreference:
+							ThetaDiff[alg_name] += self.getL2Diff(u.theta, alg.getTheta(u.id))
+						if alg.CanEstimateCoUserPreference:
+							CoThetaDiff[alg_name] += self.getL2Diff(u.CoTheta[:self.context_dimension], alg.getCoTheta(u.id)[:self.context_dimension])
+						if alg.CanEstimateW:
+							WDiff[alg_name] += self.getL2Diff(self.W.T[u.id], alg.getW(u.id))	
+						if alg.CanEstimateV:
+							VDiff[alg_name]	+= self.getL2Diff(self.articles[pickedArticle.id].featureVector, alg.getV(pickedArticle.id))
+							CoThetaVDiff[alg_name]	+= self.getL2Diff(u.CoTheta[self.context_dimension:], alg.getCoTheta(u.id)[self.context_dimension:])
+							RVDiff[alg_name] += abs(u.CoTheta[self.context_dimension:].dot(self.articles[pickedArticle.id].featureVector[self.context_dimension:]) - alg.getCoTheta(u.id)[self.context_dimension:].dot(alg.getV(pickedArticle.id)[self.context_dimension:]))
+							RDiff[alg_name] += reward-noise -  alg.getCoTheta(u.id).dot(alg.getV(pickedArticle.id))
+				if 'syncCoLinUCB' in algorithms:
+					algorithms['syncCoLinUCB'].LateUpdate()	
+				
+				for alg_name, alg in algorithms.items():
+					if alg.CanEstimateUserPreference:
+						ThetaDiffList[alg_name] += [ThetaDiff[alg_name]/userSize]
+					if alg.CanEstimateCoUserPreference:
+						CoThetaDiffList[alg_name] += [CoThetaDiff[alg_name]/userSize]
+					if alg.CanEstimateW:
+						WDiffList[alg_name] += [WDiff[alg_name]/userSize]	
+					if alg.CanEstimateV:
+						VDiffList[alg_name] += [VDiff[alg_name]/userSize]	
+						CoThetaVDiffList[alg_name] += [CoThetaVDiff[alg_name]/userSize]
+						RVDiffList[alg_name] += [RVDiff[alg_name]/userSize]
+						RDiffList[alg_name] += [RDiff[alg_name]/userSize]				
+				if iter_%self.batchSize == 0:
+					self.batchRecord(iter_)
+					tim_.append(iter_)
+					for alg_name in algorithms.iterkeys():
+						BatchCumlateRegret[alg_name].append(sum(AlgRegret[alg_name]))
+
+					with open(filenameWriteRegret, 'a+') as f:
+						f.write(str(iter_))
+						f.write(',' + ','.join([str(BatchCumlateRegret[alg_name][-1]) for alg_name in algorithms.iterkeys()]))
+						f.write('\n')
+					with open(filenameWritePara, 'a+') as f:
+						f.write(str(iter_))
+						f.write(',' + ','.join([str(CoThetaDiffList[alg_name][-1]) for alg_name in CoThetaDiffList.iterkeys()]))
+						f.write(','+ ','.join([str(ThetaDiffList[alg_name][-1]) for alg_name in ThetaDiffList.iterkeys()]))
+						f.write(','+ ','.join([str(WDiffList[alg_name][-1]) for alg_name in WDiffList.iterkeys()]))
+						f.write(',' + ','.join([str(VDiffList[alg_name][-1]) for alg_name in VDiffList.iterkeys()]))
+						f.write(',' + ','.join([str(CoThetaVDiffList[alg_name][-1]) for alg_name in CoThetaVDiffList.iterkeys()]))
+						f.write(',' + ','.join([str(RVDiffList[alg_name][-1]) for alg_name in RVDiffList.iterkeys()]))
+						f.write(',' + ','.join([str(RDiffList[alg_name][-1]) for alg_name in RDiffList.iterkeys()]))
+						f.write('\n')
+
+			if (self.plot==True): # only plot
+				# plot the results	
+				f, axa = plt.subplots(1, sharex=True)
+				for alg_name in algorithms.iterkeys():	
+					axa.plot(tim_, BatchCumlateRegret[alg_name],label = alg_name)
+					print '%s: %.2f' % (alg_name, BatchCumlateRegret[alg_name][-1])
+				axa.legend(loc='upper left',prop={'size':9})
+				axa.set_xlabel("Iteration")
+				axa.set_ylabel("Regret")
+				axa.set_title("Accumulated Regret")
+				plt.show()
+
+				# plot the estimation error of co-theta
+				f, axa = plt.subplots(1, sharex=True)
+				time = range(self.testing_iterations)
+				for alg_name, alg in algorithms.items():
+					if alg.CanEstimateUserPreference:
+						axa.plot(time, ThetaDiffList[alg_name], label = alg_name + '_Theta')
+					if alg.CanEstimateCoUserPreference:
+						axa.plot(time, CoThetaDiffList[alg_name], label = alg_name + '_CoTheta')
+					# if alg.CanEstimateV:
+					# 	axa.plot(time, VDiffList[alg_name], label = alg_name + '_V')			
+					# 	axa.plot(time, CoThetaVDiffList[alg_name], label = alg_name + '_CoThetaV')	
+					# 	axa.plot(time, RVDiffList[alg_name], label = alg_name + '_RV')	
+					# 	axa.plot(time, RDiffList[alg_name], label = alg_name + '_R')		
+				axa.legend(loc='upper right',prop={'size':6})
+				axa.set_xlabel("Iteration")
+				axa.set_ylabel("L2 Diff")
+				axa.set_yscale('log')
+				axa.set_title("Parameter estimation error")
+				plt.show()
+
+			finalRegret = {}
+			for alg_name in algorithms.iterkeys():
+				finalRegret[alg_name] = BatchCumlateRegret[alg_name][:-1]
+			return finalRegret
+
+	def runAlgorithms2(self, algorithms):
 		self.startTime = datetime.datetime.now()
 		timeRun = self.startTime.strftime('_%m_%d_%H_%M') 
 		filenameWriteRegret = os.path.join(save_address, 'AccRegret' + timeRun + '.csv')
@@ -266,19 +515,19 @@ class simulateOnlineData(object):
 				RDiff[alg_name]	= 0	
 				
 			for u in self.users:
-
 				self.regulateArticlePool() # select random articles
 
 				noise = self.noise()
+				clicks = self.simulateClicks(u, noise)
 				#get optimal reward for user x at time t
-				OptimalReward, OptimalArticle = self.GetOptimalReward(u, self.articlePool) 
+				OptimalReward, OptimalArticle = self.GetOptimalReward2(clicks) 
 				OptimalReward += noise
-							
 				for alg_name, alg in algorithms.items():
-					pickedArticle = alg.decide(self.articlePool, u.id)
-					reward = self.getReward(u, pickedArticle) + noise
+					pickedArticles = alg.decide(self.articlePool, u.id)
+					reward, choice = self.getReward2(pickedArticles, clicks)
+					reward += noise
 					if (self.testing_method=="online"): # for batch test, do not update while testing
-						alg.updateParameters(pickedArticle, reward, u.id)
+						alg.updateParameters(choice, u.id)
 						if alg_name =='CLUB':
 							n_components= alg.updateGraphClusters(u.id,'False')
 
@@ -416,7 +665,7 @@ if __name__ == '__main__':
 		latent_dimension = 0
 
 	training_iterations = 0
-	testing_iterations = 100
+	testing_iterations = 2000
 	
 	NoiseScale = .01
 
@@ -446,6 +695,9 @@ if __name__ == '__main__':
 	G_lambda_ = lambda_
 	Gepsilon = 1
 	
+	# Parameters for CascadeUCB
+	K = 5
+
 	userFilename = os.path.join(sim_files_folder, "users_"+str(n_users)+"context_"+str(context_dimension)+"latent_"+str(latent_dimension)+ "Ugroups" + str(UserGroups)+".json")
 	
 	#"Run if there is no such file with these settings; if file already exist then comment out the below funciton"
@@ -453,18 +705,25 @@ if __name__ == '__main__':
 	UM = UserManager(context_dimension+latent_dimension, n_users, UserGroups = UserGroups, thetaFunc=featureUniform, argv={'l2_limit':1})
 	# users = UM.simulateThetafromUsers()
 	# UM.saveUsers(users, userFilename, force = False)
-	users = UM.loadUsers(userFilename)
+
+	
+	# Here, the [0.15, 0.9] means that the user has a 0.15 chance of clicking on an article given that it is irrelevant, 
+	# and 0.9 chance of clicking on an article given that it is relevant
+	users = UM.loadUsers(userFilename, [0.15,0.9]) 
 
 	articlesFilename = os.path.join(sim_files_folder, "articles_"+str(n_articles)+"context_"+str(context_dimension)+"latent_"+str(latent_dimension)+ "Agroups" + str(ArticleGroups)+".json")
 	# Similarly, we can choose to simulate articles every time we run the program or simulate articles once, save it to 'sim_files_folder', and keep using it.
 	AM = ArticleManager(context_dimension+latent_dimension, n_articles=n_articles, ArticleGroups = ArticleGroups,
 			FeatureFunc=featureUniform,  argv={'l2_limit':1})
-	# articles = AM.simulateArticlePool()
-	# AM.saveArticles(articles, articlesFilename, force=False)
+	#articles = AM.simulateArticlePool()
+	#AM.saveArticles(articles, articlesFilename, force=False)
 	articles = AM.loadArticles(articlesFilename)
+
 	
 	#PCA
 	pca_articles(articles, 'random')
+
+	transitionProbabilities = np.ones(K+1) # This is set to all ones for Cascading Bandit Simulation
 
 	
 	for i in range(len(articles)):
@@ -484,12 +743,17 @@ if __name__ == '__main__':
 						type_ = "UniformTheta", 
 						signature = AM.signature,
 						sparseLevel = sparseLevel,
-						poolArticleSize = poolSize, NoiseScale = NoiseScale, epsilon = epsilon, Gepsilon =Gepsilon)
+						poolArticleSize = poolSize, NoiseScale = NoiseScale, epsilon = epsilon, Gepsilon =Gepsilon,
+						transitionProbabilities = transitionProbabilities)
 
 	print "Starting for ", simExperiment.simulation_signature
 
 	algorithms = {}
-	
+	topK = False
+
+	if algName == 'CascadeUCB':
+		algorithms['CascadeUCB'] = CascadeUCBAlgorithm(itemNum = n_articles, n = n_users, K=K)
+		topK = True
 	if algName == 'LinUCB':
 		algorithms['LinUCB'] = N_LinUCBAlgorithm(dimension = context_dimension, alpha = alpha, lambda_ = lambda_, n = n_users)
 	if algName == 'hLinUCB':
@@ -517,5 +781,8 @@ if __name__ == '__main__':
 		algorithms['UCBPMF'] = UCBPMFAlgorithm(dimension = 10, n = n_users, itemNum=n_articles, sigma = np.sqrt(.5), sigmaU = 1, sigmaV = 1, alpha = 0.1) 
 		algorithms['CoLin'] = AsyCoLinUCBAlgorithm(dimension=context_dimension, alpha = alpha, lambda_ = lambda_, n = n_users, W = simExperiment.getW())
 		algorithms['factorUCB'] = FactorUCBAlgorithm(context_dimension = context_dimension, latent_dimension = 5, alpha = 0.05, alpha2 = 0.025, lambda_ = lambda_, n = n_users, itemNum=n_articles, W = simExperiment.getW(), init='zero', window_size = -1)	
-
-	simExperiment.runAlgorithms(algorithms)
+	
+	if topK == True:
+		simExperiment.runAlgorithms2(algorithms)
+	else:
+		simExperiment.runAlgorithms(algorithms)

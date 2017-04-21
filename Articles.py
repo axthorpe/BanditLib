@@ -3,12 +3,13 @@ import numpy as np
 from util_functions import featureUniform, gaussianFeature, fileOverWriteWarning
 from random import sample, randint
 import json
+import random
+import math
 
 class Article():	
 	def __init__(self, aid, FV=None):
 		self.id = aid
 		self.featureVector = FV
-		
 
 class ArticleManager():
 	def __init__(self, dimension, n_articles, ArticleGroups, FeatureFunc, argv ):

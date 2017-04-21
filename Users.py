@@ -2,13 +2,14 @@ import numpy as np
 from util_functions import featureUniform, gaussianFeature, fileOverWriteWarning
 import json
 from random import choice, randint
+import random
 
 class User():
-	def __init__(self, id, theta = None, CoTheta = None):
+	def __init__(self, id, theta = None, CoTheta = None, profile = None):
 		self.id = id
 		self.theta = theta
 		self.CoTheta = CoTheta
-
+		self.profile = profile
 
 class UserManager():
 	def __init__(self, dimension, userNum,  UserGroups, thetaFunc, argv = None):
@@ -26,12 +27,12 @@ class UserManager():
 				print users[i].theta
 				f.write(json.dumps((users[i].id, users[i].theta.tolist())) + '\n')
 				
-	def loadUsers(self, filename):
+	def loadUsers(self, filename, prof=None):
 		users = []
 		with open(filename, 'r') as f:
 			for line in f:
 				id, theta = json.loads(line)
-				users.append(User(id, np.array(theta)))
+				users.append(User(id, np.array(theta), profile=prof))
 		return users
 
 	def generateMasks(self):

@@ -1,5 +1,6 @@
 import numpy as np
 from util_functions import vectorize
+import operator
 class LinUCBUserStruct:
 	def __init__(self, featureDimension, lambda_, init="zero"):
 		self.d = featureDimension
@@ -78,18 +79,35 @@ class N_LinUCBAlgorithm:
 		self.CanEstimateCoUserPreference = True
 		self.CanEstimateW = False
 		self.CanEstimateV = False
-	def decide(self, pool_articles, userID):
+	# def decide(self, pool_articles, userID):
+	# 	maxPTA = float('-inf')
+	# 	articlePicked = None
+
+	# 	for x in pool_articles:
+	# 		x_pta = self.users[userID].getProb(self.alpha, x.contextFeatureVector[:self.dimension])
+	# 		# pick article with highest Prob
+	# 		if maxPTA < x_pta:
+	# 			articlePicked = x
+	# 			maxPTA = x_pta
+	# 	return articlePicked
+
+	def decide(self, pool_articles, userID, k=0):
+		allPTA = []
 		maxPTA = float('-inf')
 		articlePicked = None
-
 		for x in pool_articles:
 			x_pta = self.users[userID].getProb(self.alpha, x.contextFeatureVector[:self.dimension])
-			# pick article with highest Prob
-			if maxPTA < x_pta:
-				articlePicked = x
-				maxPTA = x_pta
+			allPTA.append((x_pta, x))
+		# pick k articles with highest Prob
+		allPTA.sort(key=operator.itemgetter(0), reverse=True)
+		if k > 0:
+			ret = []
+			for i in range(k):
+				ret.append(allPTA[i][1])
+			return ret
+		else:
+			return allPTA[0][1]
 
-		return articlePicked
 	def getProb(self, pool_articles, userID):
 		means = []
 		vars = []

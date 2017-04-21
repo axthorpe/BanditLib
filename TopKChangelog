@@ -1,0 +1,9 @@
+In the modified TopK simulator I have made the following changes:
+	- Added a modified reward function and optimalReward called getReward2() and getOptimalReward2() respectively. This function is currently specific to Cascading Bandits, but I wanted to implement the DCM Bandits algorithm before generalizing the code (but now, the plan is to directly implement Contextual Combinatorial Bandits solution and then generalize).
+		- The reward function takes in the simulated clicks and the list of articles in the order presented by the algorithm. The function uses transition probabilities and the topK presented results to decide whether the reward should be 1 or 0.
+	- Added field in Users.py that stores each user's profile, which determines how likely a user is to click on relevant articles vs irrelevant articles. Users with different profiles can be easily generated from the main method.
+	- Edited the Users.py loadUsers method to take in an optional parameter to set the profile on all loaded users.
+	- Added a getClick function that uses simulates a single click using a relevance factor obtained from taking the dot function between the User Theta and Article featureVector and a sigmoid function. A click is returned as a boolean. True if clicked, False if not clicked
+	- Added SimulateClicks which goes through the article list and determines the click value given to each article by the getClick function and returns a dictionary of clicks mapped from articleID to True or False click
+	- Added CascadeUCB option in simulator so that "python Simulation.py --alg CascadeUCB" runs CascadeUCB
+	- Added CascadeUCB.py in BanditLib/lib/
