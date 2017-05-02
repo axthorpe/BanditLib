@@ -3,30 +3,25 @@ import numpy as np
 import operator
 
 class CascadeUCBUserStruct:
-	def __init__(self, L):
-		self.L = L
-		self.w_hat = {}
-		self.T = {}
-		self.U = []
+	def __init__(self, delta, d):
+		self.theta_hat = 0
+		self.beta[delta] = 1
+		self.V = np.identity(d)
+		self.X = 
+		self.Y = 
 		self.time = 1
 		
 	def c(self,t,s):
 		return math.sqrt((1.5*math.log10(t))/s)
 	
-	def computeUCBs(self, E):
+	def computeUCBs(self, E, x):
 		Y = {}
-		for e in E:
-			if e not in self.w_hat:
-				self.w_hat[e] = 0
-			if e not in self.T:
-				self.T[e] = 1
+		x_norm = ???
 		# compute UCBs
-		if self.time == 1:
-			for e in E:
-				Y[e] = self.w_hat[e]
-		else:
-			for e in E:
-				Y[e] = self.w_hat[e] + self.c(self.time-1, self.T[e])
+		tempU = np.zeros(len(E))
+		for e in E:
+			tempU[e] = np.transpose(self.theta_hat.dot(x) + self.beta[delta]*x_norm)
+
 		sortedU = sorted(Y.items(), key=operator.itemgetter(1), reverse=True)
 		tempU = []
 		for i in sortedU:
@@ -34,12 +29,15 @@ class CascadeUCBUserStruct:
 		self.U = tempU
 
 	def updateParameters(self, A, C, K):
-		if C != -1:
-			for k in range(0, min(C+1,K)):
-				e = A[k]
-				self.T[e] = self.T[e] + 1
-				self.w_hat[e] = ((self.T[e]-1)*self.w_hat[e] + (1 if C == k else 0))/(self.T[e]*1.0)
-			self.time += 1
+		# for k in range(0, min(C+1,K)):
+		# 	e = A[k]
+		# 	self.T[e] = self.T[e] + 1
+		# 	self.w_hat[e] = ((self.T[e]-1)*self.w_hat[e] + (1 if C == k else 0))/(self.T[e]*1.0)
+
+		# EQUATIONS FOR UPDATE
+		self.theta_hat = np.multiply(np.multiply(np.linalg.inv((np.multiply(((self.X).transpose), self.X) + np.identity(lambda1))), np.transpose(self.X)), self.Y)
+		self.beta[delta] = R * math.sqrt(math.log(np.linalg.det(self.V)/((lambda1**d)*(delta*delta)))) + math.sqrt(lambda1)
+		self.time += 1
 
 	def getProb(self, element):
 		return self.w_hat[element]

@@ -217,7 +217,9 @@ class simulateOnlineData(object):
 			filenameWritePara = os.path.join(save_address, 'ParameterEstimation' + timeRun + '.csv')
 
 			# compute co-theta for every user
+			print('before')
 			self.CoTheta()
+			print('after')
 
 			tim_ = []
 			BatchCumlateRegret = {}
