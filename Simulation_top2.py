@@ -37,7 +37,7 @@ class simulateOnlineData(object):
 					poolArticleSize = 10, 
 					NoiseScale = 0,
 					sparseLevel = 0,  
-					epsilon = 1, Gepsilon = 1, transitionProbabilities=None):
+					epsilon = 1, Gepsilon = 1):
 
 		self.simulation_signature = signature
 		self.type = type_
@@ -60,7 +60,6 @@ class simulateOnlineData(object):
 		self.poolArticleSize = poolArticleSize
 		self.batchSize = batchSize
 
-		self.transitionProbabilities = transitionProbabilities
 		
 		#self.W = self.initializeW(epsilon)
 		#self.GW = self.initializeGW(Gepsilon)
